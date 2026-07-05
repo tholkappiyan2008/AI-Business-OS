@@ -105,12 +105,12 @@ export default function Sidebar() {
         </nav>
 
         {/* Footer Profile */}
-        <div className="p-4 border-t border-white/5 bg-slate-900/30">
+        <div className="p-4 border-t border-white/5 bg-slate-900/30 flex items-center justify-between">
           <Link
             href="/settings"
-            className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group"
+            className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group flex-1 min-w-0"
           >
-            <div className="flex items-center justify-center w-9 h-9 rounded-full bg-slate-800 border border-white/10 text-base">
+            <div className="flex items-center justify-center w-9 h-9 rounded-full bg-slate-800 border border-white/10 text-base shrink-0">
               {settings.profile.avatar}
             </div>
             <div className="flex-1 min-w-0">
@@ -122,6 +122,19 @@ export default function Sidebar() {
               </p>
             </div>
           </Link>
+          
+          <button
+            onClick={async () => {
+              const { createClient } = await import('@/lib/supabase/client');
+              const supabase = createClient();
+              await supabase.auth.signOut();
+              window.location.href = '/login';
+            }}
+            title="Sign Out"
+            className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          </button>
         </div>
       </aside>
     </>
