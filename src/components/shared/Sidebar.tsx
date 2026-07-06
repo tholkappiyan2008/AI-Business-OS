@@ -19,11 +19,13 @@ import {
   Bell,
   Settings,
   X,
-  Sparkles
+  Sparkles,
+  Users
 } from 'lucide-react';
 
 const MENU_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Customers', href: '/customers', icon: Users },
   { label: 'AI Chat', href: '/chat', icon: MessageSquare },
   { label: 'AI Agents', href: '/agents', icon: Cpu },
   { label: 'Finance', href: '/finance', icon: Coins },

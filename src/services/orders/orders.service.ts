@@ -12,13 +12,12 @@ export interface Order {
   created_at: string;
   updated_at: string;
   customer?: {
-    first_name: string;
-    last_name: string;
+    name: string;
   } | null;
 }
 
 export async function getOrders(): Promise<Order[]> {
-  const supabase = await getSupabaseClient();
+  const supabase = getSupabaseClient();
   const businessId = await getActiveBusinessId();
   if (!businessId) return [];
 
@@ -29,5 +28,13 @@ export async function getOrders(): Promise<Order[]> {
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+
+  // Map DB customer shape to UI shape
+  return (data || []).map((order: Record<string, unknown>) => {
+    const cust = order.customer as { first_name?: string; last_name?: string } | null;
+    return {
+      ...order,
+      customer: cust ? { name: `${cust.first_name || ''} ${cust.last_name || ''}`.trim() } : null
+    };
+  }) as Order[];
 }

@@ -37,7 +37,7 @@ export default function SalesDashboard() {
           const customerStats: Record<string, { name: string; volume: number; sales: number }> = {};
           
           liveCustomers.forEach(cust => {
-            const fullName = `${cust.first_name} ${cust.last_name}`;
+            const fullName = cust.name;
             customerStats[cust.id] = { name: fullName, volume: 0, sales: 0 };
           });
 

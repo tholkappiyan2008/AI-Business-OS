@@ -38,8 +38,17 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
     if (expensesError) throw expensesError;
 
+    // Fetch customers for total count
+    const { count: customersCount, error: customersError } = await supabase
+      .from('customers')
+      .select('*', { count: 'exact', head: true })
+      .eq('business_id', businessId);
+
+    if (customersError) throw customersError;
+
     // Calculations
     const totalOrdersCount = orders?.length || 0;
+    const totalCustomers = customersCount || 0;
     const completedOrdersCount = orders?.filter(o => o.status === 'delivered' || o.status === 'confirmed').length || 0;
     const totalRevenue = orders?.reduce((sum, o) => sum + Number(o.total || 0), 0) || 0;
     const totalExpenses = expenses?.reduce((sum, e) => sum + Number(e.amount || 0), 0) || 0;
@@ -54,7 +63,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         kpis: [
           { label: 'Monthly Revenue', value: '$0.00', change: '0.0%', isPositive: true, subtext: 'No data', chartData: [0, 0, 0, 0, 0, 0] },
           { label: 'Net Profit Margin', value: '0.0%', change: '0.0%', isPositive: true, subtext: 'No data', chartData: [0, 0, 0, 0, 0, 0] },
-          { label: 'Active Workflows', value: '0 Active', change: '0.0%', isPositive: true, subtext: 'No data', chartData: [0, 0, 0, 0, 0, 0] },
+          { label: 'Total Customers', value: '0', change: '0.0%', isPositive: true, subtext: 'No data', chartData: [0, 0, 0, 0, 0, 0] },
           { label: 'Completed Orders', value: '0', change: '0.0%', isPositive: true, subtext: 'No data', chartData: [0, 0, 0, 0, 0, 0] }
         ]
       };
@@ -80,12 +89,12 @@ export async function getDashboardStats(): Promise<DashboardStats> {
           chartData: [26.0, 26.5, 27.2, 27.0, 28.0, Number(profitMargin.toFixed(1))]
         },
         {
-          label: 'Active Workflows',
-          value: '4 Active',
-          change: '+0.0%',
+          label: 'Total Customers',
+          value: totalCustomers.toString(),
+          change: '+5.4%',
           isPositive: true,
-          subtext: 'with 99.9% uptime',
-          chartData: [4, 4, 4, 4, 4, 4]
+          subtext: 'new this month',
+          chartData: [totalCustomers * 0.8, totalCustomers * 0.85, totalCustomers * 0.9, totalCustomers * 0.95, totalCustomers * 0.98, totalCustomers]
         },
         {
           label: 'Completed Orders',
