@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 // useClientStore not used in this file
 import { MOCK_SALES_FUNNEL, MOCK_SALES_TREND, MOCK_TOP_CUSTOMERS } from '@/data/mockData';
 import { Target, ShieldAlert } from 'lucide-react';
+import { getCustomers } from '@/services/customers/customers.service';
+import { getOrders } from '@/services/orders/orders.service';
 import {
   LineChart,
   Line,
@@ -18,12 +20,65 @@ import {
 
 export default function SalesDashboard() {
   const [mounted, setMounted] = useState(false);
+  const [topCustomers, setTopCustomers] = useState(MOCK_TOP_CUSTOMERS);
+  const [weeklyRevenue, setWeeklyRevenue] = useState(122000);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setMounted(true);
+    async function loadSalesData() {
+      try {
+        const [liveCustomers, liveOrders] = await Promise.all([
+          getCustomers(),
+          getOrders()
+        ]);
+
+        if (liveCustomers && liveCustomers.length > 0) {
+          // Aggregate total sales volume per customer
+          const customerStats: Record<string, { name: string; volume: number; sales: number }> = {};
+          
+          liveCustomers.forEach(cust => {
+            const fullName = `${cust.first_name} ${cust.last_name}`;
+            customerStats[cust.id] = { name: fullName, volume: 0, sales: 0 };
+          });
+
+          liveOrders.forEach(order => {
+            if (order.customer_id && customerStats[order.customer_id]) {
+              customerStats[order.customer_id].volume += Number(order.total);
+              customerStats[order.customer_id].sales += 1;
+            }
+          });
+
+          const sorted = Object.values(customerStats)
+            .sort((a, b) => b.volume - a.volume)
+            .slice(0, 4)
+            .map(cust => ({
+              name: cust.name,
+              volume: `$${cust.volume.toLocaleString()}`,
+              sales: cust.sales,
+              status: 'Active'
+            }));
+
+          if (sorted.length > 0) {
+            setTopCustomers(sorted);
+          }
+        }
+
+        if (liveOrders && liveOrders.length > 0) {
+          // Sum total orders to get weekly velocity (or average)
+          const total = liveOrders.reduce((sum, o) => sum + Number(o.total), 0);
+          setWeeklyRevenue(total);
+        }
+      } catch (err) {
+        console.error('Error fetching sales data:', err);
+      } finally {
+        setLoading(false);
+        setMounted(true);
+      }
+    }
+    loadSalesData();
   }, []);
 
-  if (!mounted) {
+  if (!mounted || loading) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -45,7 +100,7 @@ export default function SalesDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="glass-card p-5 rounded-2xl">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Weekly Revenue Velocity</p>
-          <p className="text-xl font-bold text-white mt-1">$122,000</p>
+          <p className="text-xl font-bold text-white mt-1">${weeklyRevenue.toLocaleString()}</p>
           <span className="text-[9px] text-green-400 font-bold bg-green-500/10 px-2 py-0.5 rounded-full mt-2 inline-block">
             +11% vs forecast target
           </span>
@@ -177,7 +232,7 @@ export default function SalesDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {MOCK_TOP_CUSTOMERS.map((cust, i) => (
+                {topCustomers.map((cust, i) => (
                   <tr key={i} className="group hover:bg-white/5 transition-colors">
                     <td className="py-3 text-slate-300 font-medium">{cust.name}</td>
                     <td className="py-3 font-semibold text-white">{cust.volume}</td>

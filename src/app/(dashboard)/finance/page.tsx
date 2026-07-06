@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useClientStore } from '@/hooks/useClientStore';
 import { MOCK_FINANCE_CASHFLOW, MOCK_FINANCE_EXPENSES, MOCK_INVOICES } from '@/data/mockData';
 import { ShieldCheck, Check } from 'lucide-react';
+import { getExpenses } from '@/services/expenses/expenses.service';
 import {
   AreaChart,
   Area,
@@ -19,13 +20,57 @@ import {
 export default function FinanceDashboard() {
   const [mounted, setMounted] = useState(false);
   const [invoices, setInvoices] = useState(MOCK_INVOICES);
+  const [expenseCategories, setExpenseCategories] = useState(MOCK_FINANCE_EXPENSES);
+  const [loading, setLoading] = useState(true);
   const { addActivity } = useClientStore();
 
   useEffect(() => {
-    setMounted(true);
+    async function loadFinanceData() {
+      try {
+        const liveExpenses = await getExpenses();
+        if (liveExpenses && liveExpenses.length > 0) {
+          const colors: Record<string, string> = {
+            payroll: '#3B82F6',
+            rent: '#8B5CF6',
+            utilities: '#22C55E',
+            marketing: '#F59E0B',
+            software: '#EF4444',
+            supplies: '#EC4899',
+            other: '#6B7280'
+          };
+          const categoryTotals: Record<string, number> = {};
+          liveExpenses.forEach(exp => {
+            const cat = exp.category || 'other';
+            categoryTotals[cat] = (categoryTotals[cat] || 0) + Number(exp.amount);
+          });
+          const mappedPie = Object.keys(categoryTotals).map(cat => ({
+            name: cat.charAt(0).toUpperCase() + cat.slice(1),
+            value: categoryTotals[cat],
+            color: colors[cat] || '#6B7280'
+          }));
+          setExpenseCategories(mappedPie);
+
+          const mappedInvoices = liveExpenses.map(exp => ({
+            id: `EXP-${exp.id.slice(0, 4).toUpperCase()}`,
+            client: exp.supplier?.name || exp.description || 'General Expense',
+            date: new Date(exp.expense_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+            amount: `$${Number(exp.amount).toLocaleString()}`,
+            status: exp.amount > 10000 ? 'pending' : 'paid',
+            agentVerified: true
+          }));
+          setInvoices(mappedInvoices);
+        }
+      } catch (err) {
+        console.error('Error fetching finance data:', err);
+      } finally {
+        setLoading(false);
+        setMounted(true);
+      }
+    }
+    loadFinanceData();
   }, []);
 
-  if (!mounted) {
+  if (!mounted || loading) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -125,7 +170,7 @@ export default function FinanceDashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={MOCK_FINANCE_EXPENSES}
+                    data={expenseCategories}
                     cx="50%"
                     cy="50%"
                     innerRadius={50}
@@ -133,7 +178,7 @@ export default function FinanceDashboard() {
                     paddingAngle={4}
                     dataKey="value"
                   >
-                    {MOCK_FINANCE_EXPENSES.map((entry, index) => (
+                    {expenseCategories.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -153,7 +198,7 @@ export default function FinanceDashboard() {
           </div>
 
           <div className="space-y-1.5 mt-2">
-            {MOCK_FINANCE_EXPENSES.map((exp, i) => (
+            {expenseCategories.map((exp, i) => (
               <div key={i} className="flex items-center justify-between text-[9px] font-semibold text-slate-400">
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: exp.color }} />

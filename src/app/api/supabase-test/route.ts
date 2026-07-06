@@ -17,7 +17,7 @@ export async function GET() {
     }
 
     return NextResponse.json({ status: 'success', message: 'Successfully connected to Supabase!' })
-  } catch (err: any) {
-    return NextResponse.json({ status: 'error', message: err.message }, { status: 500 })
+  } catch (err: unknown) {
+    return NextResponse.json({ status: 'error', message: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
   }
 }

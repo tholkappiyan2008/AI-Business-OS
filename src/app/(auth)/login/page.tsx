@@ -38,7 +38,7 @@ export default function LoginPage() {
         // and the user has not yet clicked their confirmation link.
         if (
           error.message === 'Email not confirmed' ||
-          (error as any).code === 'email_not_confirmed'
+          (error as { code?: string }).code === 'email_not_confirmed'
         ) {
           setIsEmailNotConfirmed(true);
           setError(
@@ -53,8 +53,8 @@ export default function LoginPage() {
 
       router.push('/dashboard');
       router.refresh();
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
       setLoading(false);
     }
   };
@@ -232,7 +232,7 @@ export default function LoginPage() {
         {/* Signup Link */}
         <div className="mt-6 text-center">
           <p className="text-xs text-slate-400">
-            Don't have an access token?{' '}
+            Don&apos;t have an access token?{' '}
             <Link href="/signup" className="text-blue-400 hover:text-blue-300 hover:underline transition-colors font-medium">
               Request Authorization
             </Link>

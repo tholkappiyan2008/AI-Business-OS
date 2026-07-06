@@ -4,18 +4,44 @@ import React, { useEffect, useState } from 'react';
 import { useClientStore } from '@/hooks/useClientStore';
 import { MOCK_INVENTORY_ITEMS, MOCK_PURCHASE_ORDERS } from '@/data/mockData';
 import { FileClock, ShoppingCart, Check } from 'lucide-react';
+import { getInventory } from '@/services/inventory/inventory.service';
 
 export default function InventoryDashboard() {
   const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState(MOCK_INVENTORY_ITEMS);
   const [purchaseOrders, setPurchaseOrders] = useState(MOCK_PURCHASE_ORDERS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { addActivity } = useClientStore();
 
   useEffect(() => {
-    setMounted(true);
+    async function loadData() {
+      try {
+        const data = await getInventory();
+        if (data && data.length > 0) {
+          const mapped = data.map(item => ({
+            id: item.id,
+            name: item.product?.name || 'Unknown Product',
+            sku: item.product?.sku || 'N/A',
+            stock: Number(item.quantity),
+            safetyLevel: Number(item.reorder_point),
+            status: Number(item.quantity) <= Number(item.reorder_point) ? 'Low Stock' : 'Healthy',
+            supplier: 'TechParts Corp'
+          }));
+          setProducts(mapped);
+        }
+      } catch (err: unknown) {
+        console.error('Error loading inventory:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch inventory');
+      } finally {
+        setLoading(false);
+        setMounted(true);
+      }
+    }
+    loadData();
   }, []);
 
-  if (!mounted) {
+  if (!mounted || loading) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -24,6 +50,15 @@ export default function InventoryDashboard() {
           ))}
         </div>
         <div className="h-96 bg-slate-900/50 rounded-2xl border border-white/5" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 rounded-2xl bg-red-950/20 border border-red-500/30 text-red-400">
+        <h3 className="font-bold text-sm">Error Loading Inventory</h3>
+        <p className="text-xs mt-1">{error}</p>
       </div>
     );
   }
