@@ -1,82 +1,177 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useClientStore } from '@/hooks/useClientStore';
-import { MOCK_FINANCE_CASHFLOW, MOCK_FINANCE_EXPENSES, MOCK_INVOICES } from '@/data/mockData';
-import { ShieldCheck, Check } from 'lucide-react';
-import { getExpenses } from '@/services/expenses/expenses.service';
+import { Search, Plus, Edit2, Trash2, X } from 'lucide-react';
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell
+  Expense, ExpenseCategory,
+  getExpenses, createExpense, updateExpense, deleteExpense, searchExpenses
+} from '@/services/expenses/expenses.service';
+import { getOrders } from '@/services/orders/orders.service';
+import {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer
 } from 'recharts';
+
+const CATEGORY_COLORS: Record<string, string> = {
+  payroll:    '#3B82F6',
+  rent:       '#8B5CF6',
+  utilities:  '#22C55E',
+  marketing:  '#F59E0B',
+  software:   '#EF4444',
+  supplies:   '#EC4899',
+  other:      '#6B7280'
+};
+
+const CATEGORIES: ExpenseCategory[] = ['payroll', 'rent', 'utilities', 'marketing', 'software', 'supplies', 'other'];
+
+interface PieSlice { name: string; value: number; color: string; }
+
+function computeKPIs(expenses: Expense[], totalRevenue: number) {
+  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
+  const cashReserve = totalRevenue - totalExpenses;
+
+  const now = new Date();
+  const currentMonthExpenses = expenses.filter(e => {
+    const d = new Date(e.expense_date);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+  const burnRate = currentMonthExpenses.reduce((s, e) => s + Number(e.amount), 0);
+
+  // Forecast: average monthly burn over last 3 months * 12 – current burn
+  const past3 = [0, 1, 2].map(offset => {
+    const d = new Date(now.getFullYear(), now.getMonth() - offset - 1, 1);
+    return expenses
+      .filter(e => {
+        const ed = new Date(e.expense_date);
+        return ed.getFullYear() === d.getFullYear() && ed.getMonth() === d.getMonth();
+      })
+      .reduce((s, e) => s + Number(e.amount), 0);
+  });
+  const hasHistory = past3.some(v => v > 0);
+  const avgMonthlyBurn = hasHistory ? past3.reduce((s, v) => s + v, 0) / 3 : null;
+  const forecastAnnual = avgMonthlyBurn !== null ? (totalRevenue - avgMonthlyBurn * 12) : null;
+
+  return { cashReserve, burnRate, forecastAnnual, hasHistory };
+}
+
+function buildPieData(expenses: Expense[]): PieSlice[] {
+  const totals: Record<string, number> = {};
+  expenses.forEach(e => {
+    totals[e.category] = (totals[e.category] || 0) + Number(e.amount);
+  });
+  return Object.entries(totals).map(([cat, val]) => ({
+    name: cat.charAt(0).toUpperCase() + cat.slice(1),
+    value: val,
+    color: CATEGORY_COLORS[cat] || '#6B7280'
+  }));
+}
+
+const initialForm = { category: 'other' as ExpenseCategory, amount: 0, description: '', expense_date: new Date().toISOString().split('T')[0] };
 
 export default function FinanceDashboard() {
   const [mounted, setMounted] = useState(false);
-  const [invoices, setInvoices] = useState(MOCK_INVOICES);
-  const [expenseCategories, setExpenseCategories] = useState(MOCK_FINANCE_EXPENSES);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [totalRevenue, setTotalRevenue] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const { addActivity } = useClientStore();
 
-  useEffect(() => {
-    async function loadFinanceData() {
-      try {
-        const liveExpenses = await getExpenses();
-        if (liveExpenses && liveExpenses.length > 0) {
-          const colors: Record<string, string> = {
-            payroll: '#3B82F6',
-            rent: '#8B5CF6',
-            utilities: '#22C55E',
-            marketing: '#F59E0B',
-            software: '#EF4444',
-            supplies: '#EC4899',
-            other: '#6B7280'
-          };
-          const categoryTotals: Record<string, number> = {};
-          liveExpenses.forEach(exp => {
-            const cat = exp.category || 'other';
-            categoryTotals[cat] = (categoryTotals[cat] || 0) + Number(exp.amount);
-          });
-          const mappedPie = Object.keys(categoryTotals).map(cat => ({
-            name: cat.charAt(0).toUpperCase() + cat.slice(1),
-            value: categoryTotals[cat],
-            color: colors[cat] || '#6B7280'
-          }));
-          setExpenseCategories(mappedPie);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [formData, setFormData] = useState(initialForm);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-          const mappedInvoices = liveExpenses.map(exp => ({
-            id: `EXP-${exp.id.slice(0, 4).toUpperCase()}`,
-            client: exp.supplier?.name || exp.description || 'General Expense',
-            date: new Date(exp.expense_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
-            amount: `$${Number(exp.amount).toLocaleString()}`,
-            status: exp.amount > 10000 ? 'pending' : 'paid',
-            agentVerified: true
-          }));
-          setInvoices(mappedInvoices);
-        }
-      } catch (err) {
-        console.error('Error fetching finance data:', err);
-      } finally {
-        setLoading(false);
-        setMounted(true);
-      }
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [expData, orders] = await Promise.all([getExpenses(), getOrders()]);
+      setExpenses(expData);
+      const rev = orders.reduce((s, o) => s + Number(o.total), 0);
+      setTotalRevenue(rev);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : JSON.stringify(err, null, 2));
+    } finally {
+      setLoading(false);
+      setMounted(true);
     }
-    loadFinanceData();
   }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) { loadData(); return; }
+    try {
+      setLoading(true);
+      const data = await searchExpenses(searchQuery);
+      setExpenses(data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : JSON.stringify(err, null, 2));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openAddModal = () => {
+    setFormData(initialForm);
+    setIsAddModalOpen(true);
+  };
+
+  const openEditModal = (exp: Expense) => {
+    setEditingExpense(exp);
+    setFormData({
+      category: exp.category,
+      amount: Number(exp.amount),
+      description: exp.description || '',
+      expense_date: exp.expense_date
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleDelete = async (id: string, label: string) => {
+    if (!confirm(`Delete expense "${label}"?`)) return;
+    try {
+      await deleteExpense(id);
+      addActivity(`Deleted expense ${label}`, 'finance');
+      loadData();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : JSON.stringify(err, null, 2));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      if (isAddModalOpen) {
+        await createExpense(formData);
+        addActivity(`Added expense $${formData.amount} (${formData.category})`, 'finance');
+      } else if (isEditModalOpen && editingExpense) {
+        await updateExpense(editingExpense.id, formData);
+        addActivity(`Updated expense $${formData.amount}`, 'finance');
+      }
+      setIsAddModalOpen(false);
+      setIsEditModalOpen(false);
+      loadData();
+    } catch (err: unknown) {
+      const se = err as { code?: string; message?: string; details?: string; hint?: string };
+      if (se.code) {
+        alert(`Supabase Error [${se.code}]: ${se.message}\nDetails: ${se.details}\nHint: ${se.hint}`);
+      } else {
+        alert(err instanceof Error ? err.message : JSON.stringify(err, null, 2));
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   if (!mounted || loading) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-28 bg-slate-900/50 rounded-xl border border-white/5" />
-          ))}
+          {[0, 1, 2].map(i => <div key={i} className="h-28 bg-slate-900/50 rounded-xl border border-white/5" />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 h-80 bg-slate-900/50 rounded-2xl border border-white/5" />
@@ -86,119 +181,183 @@ export default function FinanceDashboard() {
     );
   }
 
-  const handleApproveInvoice = (id: string, amount: string) => {
-    setInvoices(prev =>
-      prev.map(inv => (inv.id === id ? { ...inv, status: 'paid' } : inv))
+  if (error) {
+    return (
+      <div className="p-6 rounded-2xl bg-red-950/20 border border-red-500/30 text-red-400">
+        <h3 className="font-bold text-sm">Error Loading Finance Data</h3>
+        <p className="text-xs mt-1">{error}</p>
+      </div>
     );
-    addActivity(`Approved payment for invoice ${id} of ${amount}`, 'finance');
-  };
+  }
+
+  const { cashReserve, burnRate, forecastAnnual, hasHistory } = computeKPIs(expenses, totalRevenue);
+  const pieData = buildPieData(expenses);
+  const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
 
   return (
     <div className="space-y-6 pb-12 text-left">
-      {/* KPI Cards Row */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="glass-card p-5 rounded-2xl">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Total Cash Reserve</p>
-          <p className="text-xl font-bold text-white mt-1">$2,147,900</p>
-          <span className="text-[9px] text-green-400 font-bold bg-green-500/10 px-2 py-0.5 rounded-full mt-2 inline-block">
-            +$375,000 this quarter
-          </span>
+          <p className={`text-xl font-bold mt-1 ${cashReserve >= 0 ? 'text-white' : 'text-red-400'}`}>
+            {cashReserve >= 0 ? '+' : '-'}${Math.abs(cashReserve).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </p>
+          <span className="text-[9px] text-slate-400 mt-2 inline-block">Revenue − Total Expenses</span>
         </div>
 
         <div className="glass-card p-5 rounded-2xl">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Current Burn Rate</p>
-          <p className="text-xl font-bold text-white mt-1">$98,500/mo</p>
-          <span className="text-[9px] text-slate-400 font-medium mt-2 inline-block">
-            Estimated runway: 22 months
-          </span>
+          <p className="text-xl font-bold text-white mt-1">
+            ${burnRate.toLocaleString(undefined, { minimumFractionDigits: 2 })}/mo
+          </p>
+          <span className="text-[9px] text-slate-400 mt-2 inline-block">Expenses this month</span>
         </div>
 
         <div className="glass-card p-5 rounded-2xl">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Forecasted Q3 Net Cash Flow</p>
-          <p className="text-xl font-bold text-white mt-1">+$420,000</p>
-          <span className="text-[9px] text-blue-400 font-bold bg-blue-500/10 px-2 py-0.5 rounded-full mt-2 inline-block">
-            Forecast confidence: 98%
-          </span>
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Forecasted Annual Net Cash</p>
+          {hasHistory && forecastAnnual !== null ? (
+            <>
+              <p className={`text-xl font-bold mt-1 ${forecastAnnual >= 0 ? 'text-white' : 'text-red-400'}`}>
+                {forecastAnnual >= 0 ? '+' : '-'}${Math.abs(forecastAnnual).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+              <span className="text-[9px] text-blue-400 font-bold bg-blue-500/10 px-2 py-0.5 rounded-full mt-2 inline-block">
+                Based on 3-month avg burn
+              </span>
+            </>
+          ) : (
+            <>
+              <p className="text-xl font-bold text-slate-400 mt-1">—</p>
+              <span className="text-[9px] text-slate-500 mt-2 inline-block">Not enough historical data</span>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Cash Flow and Category Breakdown */}
+      {/* Expense Breakdown Chart + Ledger */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Cash Flow Line Chart */}
-        <div className="lg:col-span-2 glass-panel p-6 rounded-2xl min-h-[340px] flex flex-col justify-between">
-          <div className="flex justify-between items-center mb-4">
+        {/* Expense Ledger (full list + search + CRUD) */}
+        <div className="lg:col-span-2 glass-panel p-6 rounded-2xl space-y-4">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold text-white">Cash Reserve Expansion</h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">Historical growth timeline</p>
+              <h3 className="text-sm font-semibold text-white">Expense Ledger</h3>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                Total: ${totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <form onSubmit={handleSearch} className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search expenses..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="bg-slate-900/50 border border-white/10 rounded-xl pl-9 pr-4 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50"
+                />
+              </form>
+              <button
+                onClick={openAddModal}
+                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Expense
+              </button>
             </div>
           </div>
 
-          <div className="flex-1 h-60">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={MOCK_FINANCE_CASHFLOW} margin={{ top: 10, right: 5, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.25}/>
-                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="month" stroke="rgba(255,255,255,0.2)" fontSize={10} tickLine={false} />
-                <YAxis stroke="rgba(255,255,255,0.2)" fontSize={10} tickLine={false} tickFormatter={(val) => `$${val / 1000000}M`} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'rgba(15, 23, 42, 0.95)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    fontSize: '11px'
-                  }}
-                  formatter={(val: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => [`$${Number(val).toLocaleString()}`, '']}
-                />
-                <Area type="monotone" dataKey="cash" stroke="#3B82F6" strokeWidth={2} fillOpacity={1} fill="url(#colorCash)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div className="overflow-x-auto">
+            {expenses.length === 0 ? (
+              <div className="text-center py-10">
+                <p className="text-sm text-slate-400">No expenses recorded yet.</p>
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-white/5 text-slate-500 font-semibold uppercase text-[9px] tracking-wider">
+                    <th className="pb-3 pr-2">Date</th>
+                    <th className="pb-3 pr-2">Category</th>
+                    <th className="pb-3 pr-2">Description</th>
+                    <th className="pb-3 pr-2">Amount</th>
+                    <th className="pb-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {expenses.map(exp => (
+                    <tr key={exp.id} className="hover:bg-white/5 transition-colors group">
+                      <td className="py-3 pr-2 text-slate-400">{new Date(exp.expense_date).toLocaleDateString()}</td>
+                      <td className="py-3 pr-2">
+                        <span
+                          className="text-[9px] font-bold uppercase px-2 py-0.5 rounded"
+                          style={{ background: `${CATEGORY_COLORS[exp.category]}20`, color: CATEGORY_COLORS[exp.category] }}
+                        >
+                          {exp.category}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-2 text-slate-300 max-w-[180px] truncate">
+                        {exp.description || exp.supplier?.name || '—'}
+                      </td>
+                      <td className="py-3 pr-2 font-semibold text-white">${Number(exp.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openEditModal(exp)} className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleDelete(exp.id, exp.description || exp.category)} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
 
-        {/* Expenses Category Pie Chart */}
+        {/* Pie Chart — Expense Breakdown */}
         <div className="glass-panel p-6 rounded-2xl flex flex-col justify-between">
           <div>
             <h3 className="text-sm font-semibold text-white mb-1">Expense Breakdown</h3>
-            <p className="text-[10px] text-slate-400 mb-4">Allocation by category this cycle</p>
+            <p className="text-[10px] text-slate-400 mb-4">Allocation by category</p>
 
-            <div className="h-44 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={expenseCategories}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={65}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {expenseCategories.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: 'rgba(15, 23, 42, 0.95)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      borderRadius: '8px',
-                      color: '#fff',
-                      fontSize: '10px'
-                    }}
-                    formatter={(val: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => [`$${Number(val).toLocaleString()}`, '']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            {pieData.length === 0 ? (
+              <div className="flex items-center justify-center h-44 text-slate-500 text-xs">No expense data yet</div>
+            ) : (
+              <div className="h-44 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={65}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: 'rgba(15, 23, 42, 0.95)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '8px',
+                        color: '#fff',
+                        fontSize: '10px'
+                      }}
+                      formatter={(val: unknown) => [`$${Number(val).toLocaleString()}`, '']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5 mt-2">
-            {expenseCategories.map((exp, i) => (
+            {pieData.map((exp, i) => (
               <div key={i} className="flex items-center justify-between text-[9px] font-semibold text-slate-400">
                 <span className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: exp.color }} />
@@ -211,83 +370,76 @@ export default function FinanceDashboard() {
         </div>
       </div>
 
-      {/* Invoices Ledger Table */}
-      <div className="glass-panel p-6 rounded-2xl space-y-4">
-        <div>
-          <h3 className="text-sm font-semibold text-white">Invoice Ledger</h3>
-          <p className="text-[10px] text-slate-400 mt-0.5">Verified by Finance Agent matching purchase records</p>
+      {/* MODALS */}
+      {(isAddModalOpen || isEditModalOpen) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="glass-panel w-full max-w-md rounded-2xl p-6 relative">
+            <button onClick={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); }} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white">
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-lg font-bold text-white mb-6">
+              {isAddModalOpen ? 'Add Expense' : 'Edit Expense'}
+            </h2>
+            <form onSubmit={handleSubmit} className="space-y-4 text-sm text-slate-300">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-400">Category</label>
+                  <select
+                    required
+                    value={formData.category}
+                    onChange={e => setFormData({ ...formData, category: e.target.value as ExpenseCategory })}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500/50"
+                  >
+                    {CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-400">Amount ($)</label>
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.amount}
+                    onChange={e => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-400">Description</label>
+                  <input
+                    type="text"
+                    value={formData.description}
+                    onChange={e => setFormData({ ...formData, description: e.target.value })}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500/50"
+                    placeholder="Optional description"
+                  />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-400">Date</label>
+                  <input
+                    required
+                    type="date"
+                    value={formData.expense_date}
+                    onChange={e => setFormData({ ...formData, expense_date: e.target.value })}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500/50"
+                  />
+                </div>
+              </div>
+              <div className="pt-4 flex justify-end gap-3">
+                <button type="button" onClick={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); }} className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/5">
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSubmitting} className="px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50">
+                  {isSubmitting ? 'Saving...' : 'Save Expense'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-white/5 text-slate-500 font-semibold uppercase text-[9px] tracking-wider">
-                <th className="pb-3 pr-2">ID</th>
-                <th className="pb-3 pr-2">Client / Vendor</th>
-                <th className="pb-3 pr-2">Billing Date</th>
-                <th className="pb-3 pr-2">Amount</th>
-                <th className="pb-3 pr-2 text-center">AI Verified</th>
-                <th className="pb-3 pr-2">Status</th>
-                <th className="pb-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {invoices.map((inv) => {
-                const isPaid = inv.status === 'paid';
-                return (
-                  <tr key={inv.id} className="group hover:bg-white/5 transition-colors">
-                    <td className="py-3 font-mono font-semibold text-white">{inv.id}</td>
-                    <td className="py-3 text-slate-300 font-medium">{inv.client}</td>
-                    <td className="py-3 text-slate-400">{inv.date}</td>
-                    <td className="py-3 font-semibold text-white">{inv.amount}</td>
-                    <td className="py-3 text-center">
-                      {inv.agentVerified ? (
-                        <span className="inline-flex items-center gap-1 text-[9px] bg-green-500/10 text-green-400 px-2 py-0.5 rounded border border-green-500/15 font-bold uppercase">
-                          <ShieldCheck className="w-3 h-3" /> MATCHED
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[9px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded border border-amber-500/15 font-bold uppercase">
-                          MANUAL CHECK
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3">
-                      <span className={`inline-block text-[9px] font-bold uppercase px-2 py-0.5 rounded ${
-                        isPaid
-                          ? 'bg-green-500/10 text-green-400'
-                          : inv.status === 'pending'
-                          ? 'bg-amber-500/10 text-amber-400'
-                          : 'bg-red-500/10 text-red-400'
-                      }`}>
-                        {inv.status}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right">
-                      {inv.status === 'pending' ? (
-                        <button
-                          onClick={() => handleApproveInvoice(inv.id, inv.amount)}
-                          className="px-2.5 py-1 text-[9px] font-bold rounded bg-blue-600 hover:bg-blue-500 text-white transition-all shadow shadow-blue-500/10 inline-flex items-center gap-1"
-                        >
-                          Approve <Check className="w-3 h-3" />
-                        </button>
-                      ) : isPaid ? (
-                        <span className="text-[10px] text-slate-500 font-medium">Reconciled</span>
-                      ) : (
-                        <button
-                          onClick={() => handleApproveInvoice(inv.id, inv.amount)}
-                          className="px-2.5 py-1 text-[9px] font-bold rounded bg-slate-800 hover:bg-slate-700 text-white transition-all inline-flex items-center gap-1"
-                        >
-                          Force Settle
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
