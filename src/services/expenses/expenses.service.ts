@@ -1,4 +1,8 @@
 import { getBrowserSupabaseClient as getSupabaseClient, getBrowserActiveBusinessId as getActiveBusinessId } from '../clientHelper';
+import { notifyExpenseCreated, notifyExpenseApprovalRequired } from '../notifications/notifications.service';
+
+// Expenses above this threshold require approval notification
+const APPROVAL_THRESHOLD = 1000;
 
 export type ExpenseCategory = 'payroll' | 'rent' | 'utilities' | 'marketing' | 'software' | 'supplies' | 'other';
 
@@ -37,6 +41,8 @@ export async function getExpenses(): Promise<Expense[]> {
   return data || [];
 }
 
+
+
 export async function searchExpenses(query: string): Promise<Expense[]> {
   const all = await getExpenses();
   const lower = query.toLowerCase();
@@ -59,8 +65,16 @@ export async function createExpense(payload: CreateExpensePayload): Promise<Expe
     .single();
 
   if (error) throw error;
+
+  // Fire notifications asynchronously
+  notifyExpenseCreated(payload.category, payload.amount).catch(console.error);
+  if (payload.amount >= APPROVAL_THRESHOLD) {
+    notifyExpenseApprovalRequired(payload.category, payload.amount, APPROVAL_THRESHOLD).catch(console.error);
+  }
+
   return data;
 }
+
 
 export async function updateExpense(id: string, payload: Partial<CreateExpensePayload>): Promise<Expense> {
   const supabase = getSupabaseClient();

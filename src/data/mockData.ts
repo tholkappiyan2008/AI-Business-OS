@@ -3,6 +3,8 @@
 export interface ChatMessage {
   sender: 'user' | 'agent';
   text: string;
+  timestamp?: string;
+  isError?: boolean;
 }
 
 export interface ChatThread {
@@ -43,17 +45,6 @@ export interface AutomationLog {
   workflow: string;
   event: string;
   level: string;
-}
-
-export interface Notification {
-  id: string;
-  title: string;
-  desc: string;
-  type: string;
-  category: string;
-  time: string;
-  actionRequired: boolean;
-  approved?: boolean;
 }
 
 
@@ -332,10 +323,14 @@ export const MOCK_CHAT_HISTORY: ChatThread[] = [
 ];
 
 export const SUGGESTED_QUESTIONS = [
-  'How is our cash flow forecasting for Q3?',
-  'Which marketing campaign has the highest ROI?',
-  'Show me low stock items and draft restocks.',
-  'What are the critical system warnings today?'
+  '📊 Business Summary',
+  '💰 Increase Revenue',
+  '📦 Inventory Analysis',
+  '👥 Customer Insights',
+  '📈 Marketing Ideas',
+  '⚠️ Business Risks',
+  '📋 Executive Report',
+  '🚀 Growth Strategy'
 ];
 
 // Finance Specifics
@@ -402,35 +397,9 @@ export const MOCK_PURCHASE_ORDERS = [
   { id: 'PO-9019', item: 'Model-X Processing Node', qty: 100, cost: '$12,500', supplier: 'NodeMatrix LLC', date: 'Jun 15, 2026', status: 'Delivered' }
 ];
 
-// Marketing Specifics
-export const MOCK_CAMPAIGN_PERFORMANCE = [
-  { name: 'LinkedIn Enterprise', spent: 12000, revenue: 42000, roi: 3.5, channel: 'LinkedIn' },
-  { name: 'Google Intent Search', spent: 15000, revenue: 18000, roi: 1.2, channel: 'Google' },
-  { name: 'Meta Lookalike Conversions', spent: 8000, revenue: 27200, roi: 3.4, channel: 'Meta' },
-  { name: 'Dev Newsletter Sponsorship', spent: 3000, revenue: 10500, roi: 3.5, channel: 'Newsletter' },
-  { name: 'Twitter Developer Ads', spent: 5000, revenue: 4000, roi: 0.8, channel: 'Twitter' }
-];
-
-export const MOCK_EMAIL_ANALYTICS = [
-  { campaign: 'Product Launch Update', sent: 24500, openRate: '42.8%', clickRate: '12.4%', conversions: 310 },
-  { campaign: 'Monthly Developer Digest', sent: 23200, openRate: '38.5%', clickRate: '8.2%', conversions: 145 },
-  { campaign: 'CEO Agent Spotlight', sent: 25100, openRate: '51.2%', clickRate: '16.9%', conversions: 489 }
-];
+// Marketing Specifics (Removed hardcoded data)
 
 // Operations Specifics
-export const MOCK_SERVER_NODES = [
-  { id: 'N-1', name: 'Primary Cognitive Engine', location: 'us-east-1', cpu: 62, memory: 78, status: 'healthy', load: 88 },
-  { id: 'N-2', name: 'Analytical Query Node', location: 'us-west-2', cpu: 34, memory: 45, status: 'healthy', load: 40 },
-  { id: 'N-3', name: 'Task Automation Worker', location: 'eu-central-1', cpu: 12, memory: 31, status: 'healthy', load: 15 },
-  { id: 'N-4', name: 'Scoring Inference Cluster', location: 'ap-northeast-1', cpu: 89, memory: 91, status: 'warning', load: 95 }
-];
-
-export const MOCK_OPERATIONS_TIMELINE = [
-  { time: '16:51:00', title: 'Task Automated', desc: 'Auto-composed PO-9021 for low stock Model-B', status: 'success' },
-  { time: '16:48:00', title: 'Data Ingestion', desc: 'Reconciled 145 new CRM records', status: 'success' },
-  { time: '16:30:12', title: 'Workflow Executed', desc: 'Node-9 (Email Trigger) failed on SMTP connection, retrying...', status: 'warning' },
-  { time: '16:30:15', title: 'Auto-Correction', desc: 'Node-9 recovered and succeeded on second attempt', status: 'success' }
-];
 
 // Automation Specifics
 export const MOCK_WORKFLOWS = [

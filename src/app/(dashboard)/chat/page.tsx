@@ -14,7 +14,8 @@ import {
   MessageSquare,
   ChevronRight,
   FileText,
-  X
+  X,
+  RefreshCcw
 } from 'lucide-react';
 
 export default function AIChatPage() {
@@ -70,6 +71,16 @@ export default function AIChatPage() {
 
   const handleQuestionClick = (question: string) => {
     setInput(question);
+    
+    // Automatically send the suggestion when clicked
+    setTimeout(() => {
+      sendChatMessage(question);
+      setInput('');
+      setIsTyping(true);
+      setTimeout(() => {
+        setIsTyping(false);
+      }, 1100);
+    }, 100);
   };
 
   const handleFileAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,27 +98,46 @@ export default function AIChatPage() {
 
   // Helper to render markdown-like formatting in messages
   const renderMessageText = (text: string) => {
-    // Regex parsing for basic bolding **, bullet lists -, and code fragments
-    const lines = text.split('\n');
-    return lines.map((line, idx) => {
-      if (line.startsWith('- ')) {
+    // Regex parsing for code blocks and basic markdown
+    const parts = text.split(/(```[\s\S]*?```)/g);
+    
+    return parts.map((part, idx) => {
+      if (part.startsWith('```') && part.endsWith('```')) {
+        const codeContent = part.substring(3, part.length - 3).replace(/^\w+\n/, ''); // remove language identifier if present
         return (
-          <li key={idx} className="ml-4 list-disc text-slate-300 my-1">
-            {parseBoldText(line.substring(2))}
-          </li>
+          <pre key={idx} className="my-2 p-3 rounded-lg bg-slate-900 overflow-x-auto text-slate-300 font-mono text-[11px] border border-white/10">
+            <code>{codeContent.trim()}</code>
+          </pre>
         );
       }
-      if (line.startsWith('### ')) {
-        return (
-          <h4 key={idx} className="text-sm font-bold text-white mt-3 mb-1">
-            {line.substring(4)}
-          </h4>
-        );
-      }
+
+      // regular text
+      const lines = part.split('\n');
       return (
-        <p key={idx} className="my-1 text-slate-300 leading-relaxed">
-          {parseBoldText(line)}
-        </p>
+        <div key={idx}>
+          {lines.map((line, lIdx) => {
+            if (line.trim() === '') return <br key={lIdx} />;
+            if (line.startsWith('- ') || line.startsWith('• ')) {
+              return (
+                <li key={lIdx} className="ml-4 list-disc text-slate-300 my-1">
+                  {parseBoldText(line.substring(2))}
+                </li>
+              );
+            }
+            if (line.startsWith('### ')) {
+              return (
+                <h4 key={lIdx} className="text-sm font-bold text-white mt-3 mb-1">
+                  {line.substring(4)}
+                </h4>
+              );
+            }
+            return (
+              <p key={lIdx} className="my-1 text-slate-300 leading-relaxed">
+                {parseBoldText(line)}
+              </p>
+            );
+          })}
+        </div>
       );
     });
   };
@@ -131,7 +161,7 @@ export default function AIChatPage() {
             onClick={() => createNewChat('')}
             className="w-full py-2 px-4 rounded-xl bg-blue-600/10 border border-blue-500/20 hover:border-blue-500/50 hover:bg-blue-600/20 text-xs font-semibold text-blue-400 flex items-center justify-center gap-1.5 transition-all"
           >
-            <Plus className="w-3.5 h-3.5" /> New Discussion
+            <Plus className="w-3.5 h-3.5" /> New Business Strategy
           </button>
         </div>
 
@@ -163,7 +193,7 @@ export default function AIChatPage() {
         <div className="h-12 border-b border-white/5 px-6 flex items-center justify-between bg-slate-950/20">
           <div className="flex items-center gap-2">
             <Bot className="w-4.5 h-4.5 text-blue-400" />
-            <span className="text-xs font-bold text-white">{activeThread?.title || 'System Assistant'}</span>
+            <span className="text-xs font-bold text-white">{activeThread?.title || 'AI Business OS'}</span>
           </div>
           <span className="text-[10px] text-slate-500 font-mono">Cognitive Pipeline Sync: 100%</span>
         </div>
@@ -193,9 +223,16 @@ export default function AIChatPage() {
                     : 'bg-purple-950/10 border-purple-500/15'
                 }`}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-[10px] text-slate-400">
-                      {isAgent ? 'Autonomous Agent' : 'CEO'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[10px] text-slate-400">
+                        {isAgent ? 'AI Business OS Assistant' : 'CEO'}
+                      </span>
+                      {msg.timestamp && (
+                        <span className="text-[9px] text-slate-500 font-medium">
+                          {msg.timestamp}
+                        </span>
+                      )}
+                    </div>
                     {isAgent && (
                       <button
                         onClick={() => handleCopyText(msg.text, idx)}
@@ -205,7 +242,29 @@ export default function AIChatPage() {
                       </button>
                     )}
                   </div>
-                  <div>{renderMessageText(msg.text)}</div>
+                  <div className={msg.isError ? 'text-red-400' : ''}>{renderMessageText(msg.text)}</div>
+                  {msg.isError && !isAgent && (
+                    <button 
+                      onClick={() => sendChatMessage(msg.text)}
+                      className="mt-2 flex items-center gap-1.5 text-[10px] text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 px-2 py-1 rounded transition-colors"
+                    >
+                      <RefreshCcw className="w-3 h-3" /> Retry Message
+                    </button>
+                  )}
+                  {msg.isError && isAgent && (
+                    <button 
+                      onClick={() => {
+                        // Find the previous user message to retry
+                        const prevUserMsg = activeThread?.messages[idx - 1];
+                        if (prevUserMsg && prevUserMsg.sender === 'user') {
+                          sendChatMessage(prevUserMsg.text);
+                        }
+                      }}
+                      className="mt-2 flex items-center gap-1.5 text-[10px] text-red-400 hover:text-red-300 bg-red-400/10 hover:bg-red-400/20 px-2 py-1 rounded transition-colors"
+                    >
+                      <RefreshCcw className="w-3 h-3" /> Retry Message
+                    </button>
+                  )}
                 </div>
               </div>
             );

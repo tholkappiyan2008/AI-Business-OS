@@ -1,4 +1,5 @@
 import { getBrowserSupabaseClient as getSupabaseClient, getBrowserActiveBusinessId as getActiveBusinessId } from '../clientHelper';
+import { notifyCustomerCreated } from '../notifications/notifications.service';
 
 export interface Customer {
   id: string;
@@ -91,7 +92,12 @@ export async function createCustomer(customer: Omit<Customer, 'id' | 'business_i
     .single();
 
   if (error) throw error;
-  return mapFromDB(data);
+  const mapped = mapFromDB(data);
+
+  // Fire notification asynchronously (non-blocking)
+  notifyCustomerCreated(mapped.name).catch(console.error);
+
+  return mapped;
 }
 
 export async function updateCustomer(id: string, customer: Partial<Omit<Customer, 'id' | 'business_id' | 'created_at'>>): Promise<Customer> {

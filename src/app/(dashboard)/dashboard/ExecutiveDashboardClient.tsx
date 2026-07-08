@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useClientStore } from '@/hooks/useClientStore';
-import { DashboardStats } from '@/services/dashboard/dashboard.service';
+import { DashboardStats, Recommendation, Task } from '@/services/dashboard/dashboard.service';
 import {
   Sparkles,
   Check,
@@ -29,17 +28,22 @@ interface ExecutiveDashboardClientProps {
 
 export default function ExecutiveDashboardClient({ initialStats }: ExecutiveDashboardClientProps) {
   const [mounted, setMounted] = useState(false);
-  const {
-    recommendations,
-    approveRecommendation,
-    activities,
-    upcomingTasks,
-    dismissTask
-  } = useClientStore();
+  const [localRecs, setLocalRecs] = useState<Recommendation[]>([]);
+  const [localTasks, setLocalTasks] = useState<Task[]>([]);
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    setLocalRecs(initialStats.recommendations || []);
+    setLocalTasks(initialStats.tasks || []);
+  }, [initialStats]);
+
+  const approveRecommendation = (id: string) => {
+    setLocalRecs(prev => prev.filter(r => r.id !== id));
+  };
+
+  const dismissTask = (id: string) => {
+    setLocalTasks(prev => prev.filter(t => t.id !== id));
+  };
 
   if (!mounted) {
     // Beautiful Loading Skeletons
@@ -59,18 +63,8 @@ export default function ExecutiveDashboardClient({ initialStats }: ExecutiveDash
     );
   }
 
-  // Active recommendations
-  const activeRecs = recommendations.filter(r => !r.approved);
-
-  // Mock data for overall performance chart (inflows vs outflows)
-  const chartData = [
-    { month: 'Jan', inflow: 320000, outflow: 240000 },
-    { month: 'Feb', inflow: 350000, outflow: 245000 },
-    { month: 'Mar', inflow: 380000, outflow: 260000 },
-    { month: 'Apr', inflow: 410000, outflow: 280000 },
-    { month: 'May', inflow: 440000, outflow: 310000 },
-    { month: 'Jun', inflow: 482900, outflow: 320000 }
-  ];
+  const chartData = initialStats.chartData || [];
+  const activities = initialStats.activities || [];
 
   return (
     <div className="space-y-6 pb-12">
@@ -85,7 +79,7 @@ export default function ExecutiveDashboardClient({ initialStats }: ExecutiveDash
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-blue-400 tracking-wider uppercase">Today&apos;s Executive Synthesis</span>
               <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                <Clock className="w-3 h-3" /> Updated 10m ago
+                <Clock className="w-3 h-3" /> Updated just now
               </span>
             </div>
             <p className="text-sm font-medium text-white leading-relaxed">
@@ -224,21 +218,21 @@ export default function ExecutiveDashboardClient({ initialStats }: ExecutiveDash
                 <Sparkles className="w-4 h-4 text-blue-400" /> AI Recommendations
               </h3>
               <span className="text-[10px] bg-blue-500/10 text-blue-400 font-bold px-2 py-0.5 rounded-full">
-                {activeRecs.length} Actionable
+                {localRecs.length} Actionable
               </span>
             </div>
 
             <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
-              {activeRecs.length === 0 ? (
+              {localRecs.length === 0 ? (
                 <div className="text-center py-10 space-y-2">
                   <div className="flex justify-center text-green-400">
                     <Check className="w-8 h-8 rounded-full bg-green-500/10 p-1 border border-green-500/20" />
                   </div>
-                  <p className="text-xs text-slate-300 font-medium">All recommendations implemented</p>
+                  <p className="text-xs text-slate-300 font-medium">No recommendations available.</p>
                   <p className="text-[10px] text-slate-500">Autonomous systems are maintaining stability.</p>
                 </div>
               ) : (
-                activeRecs.map((rec) => (
+                localRecs.map((rec) => (
                   <div key={rec.id} className="p-3.5 rounded-xl border border-white/5 bg-slate-900/40 space-y-2 text-left relative overflow-hidden group">
                     <div className="flex items-start justify-between">
                       <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
@@ -252,7 +246,7 @@ export default function ExecutiveDashboardClient({ initialStats }: ExecutiveDash
                     <p className="text-[10px] text-slate-400 line-clamp-2 leading-relaxed">{rec.description}</p>
                     
                     <div className="pt-2 flex items-center justify-between border-t border-white/5">
-                      <span className="text-[9px] font-medium text-slate-500">{rec.impact}</span>
+                      <span className="text-[9px] font-medium text-slate-500">{rec.action}</span>
                       <button
                         onClick={() => approveRecommendation(rec.id)}
                         className="text-[10px] font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
@@ -285,15 +279,28 @@ export default function ExecutiveDashboardClient({ initialStats }: ExecutiveDash
           </div>
 
           <div className="space-y-3.5 max-h-[220px] overflow-y-auto pr-1">
-            {activities.map((act) => (
-              <div key={act.id} className="flex items-start justify-between gap-4 text-xs">
-                <div className="flex items-start gap-3">
-                  <div className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-500 shadow-md shadow-blue-500" />
-                  <span className="text-slate-300 font-medium">{act.text}</span>
-                </div>
-                <span className="text-[9px] text-slate-500 whitespace-nowrap">{act.time}</span>
+            {activities.length === 0 ? (
+              <div className="text-center py-6 text-xs text-slate-500">
+                No recent activities.
               </div>
-            ))}
+            ) : (
+              activities.map((act) => {
+                const date = new Date(act.time);
+                const timeString = isNaN(date.getTime()) ? act.time : date.toLocaleString();
+                return (
+                  <div key={act.id} className="flex items-start justify-between gap-4 text-xs">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-500 shadow-md shadow-blue-500" />
+                      <div>
+                        <span className="text-slate-300 font-medium block">{act.title}</span>
+                        <span className="text-[10px] text-slate-500">{act.description}</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] text-slate-500 whitespace-nowrap">{timeString}</span>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -303,30 +310,34 @@ export default function ExecutiveDashboardClient({ initialStats }: ExecutiveDash
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-white">CEO Operational Board</h3>
               <span className="text-[10px] bg-white/5 border border-white/10 text-slate-400 font-semibold px-2 py-0.5 rounded">
-                {upcomingTasks.length} Pending
+                {localTasks.length} Pending
               </span>
             </div>
 
             <div className="space-y-3 max-h-[160px] overflow-y-auto pr-1">
-              {upcomingTasks.length === 0 ? (
+              {localTasks.length === 0 ? (
                 <div className="text-center py-6 text-xs text-slate-500">
-                  No upcoming manual validations required.
+                  Everything is operating normally.
                 </div>
               ) : (
-                upcomingTasks.map((t) => (
-                  <div key={t.id} className="p-3 rounded-xl border border-white/5 bg-slate-900/30 flex items-center justify-between gap-3 text-left">
-                    <div>
-                      <p className="text-xs font-semibold text-white truncate max-w-[150px]">{t.text}</p>
-                      <p className="text-[9px] text-slate-500 mt-0.5">Due: {t.date}</p>
+                localTasks.map((t) => {
+                  const date = new Date(t.time);
+                  const timeString = isNaN(date.getTime()) ? t.time : date.toLocaleDateString();
+                  return (
+                    <div key={t.id} className="p-3 rounded-xl border border-white/5 bg-slate-900/30 flex items-center justify-between gap-3 text-left">
+                      <div>
+                        <p className="text-xs font-semibold text-white truncate max-w-[150px]">{t.title}</p>
+                        <p className="text-[9px] text-slate-500 mt-0.5">Updated: {timeString}</p>
+                      </div>
+                      <button
+                        onClick={() => dismissTask(t.id)}
+                        className="p-1 rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all text-[10px] font-bold"
+                      >
+                        Verify
+                      </button>
                     </div>
-                    <button
-                      onClick={() => dismissTask(t.id)}
-                      className="p-1 rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-all text-[10px] font-bold"
-                    >
-                      Verify
-                    </button>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

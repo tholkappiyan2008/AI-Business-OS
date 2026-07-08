@@ -8,7 +8,7 @@ import { Menu, Bell, Sparkles, Calendar } from 'lucide-react';
 
 export default function TopNav() {
   const pathname = usePathname();
-  const { setSidebarOpen, notifications } = useClientStore();
+  const { setSidebarOpen, unreadNotificationCount } = useClientStore();
 
   // Get Page Title from Pathname
   const getPageTitle = () => {
@@ -18,7 +18,6 @@ export default function TopNav() {
     if (mainPart === 'chat') return 'AI Cognitive Chat';
     if (mainPart === 'agents') {
       if (parts[1]) {
-        // e.g. /agents/ceo-agent
         const agentName = parts[1].replace('-agent', '').toUpperCase();
         return `${agentName} Agent Intelligence`;
       }
@@ -33,8 +32,6 @@ export default function TopNav() {
     day: 'numeric',
     year: 'numeric'
   });
-
-  const unreadNotificationsCount = notifications.filter(n => !n.approved).length;
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-6 border-b border-white/5 bg-slate-950/40 backdrop-blur-md">
@@ -70,16 +67,16 @@ export default function TopNav() {
           <span className="hidden md:inline">Ask AI Agent</span>
         </Link>
 
-        {/* Notification Bell */}
+        {/* Notification Bell — unread count from Supabase */}
         <Link
           href="/notifications"
           className="relative p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+          aria-label={unreadNotificationCount > 0 ? `${unreadNotificationCount} unread notifications` : 'Notifications'}
         >
           <Bell className="w-4 h-4" />
-          {unreadNotificationsCount > 0 && (
-            <span className="absolute top-1 right-1 flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+          {unreadNotificationCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white border-2 border-slate-950">
+              {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
             </span>
           )}
         </Link>

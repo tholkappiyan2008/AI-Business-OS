@@ -1,4 +1,5 @@
 import { getBrowserSupabaseClient as getSupabaseClient, getBrowserActiveBusinessId as getActiveBusinessId } from '../clientHelper';
+import { notifyOrderCreated, notifyOrderDelivered } from '../notifications/notifications.service';
 
 export type OrderStatus = 'draft' | 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
 
@@ -133,10 +134,15 @@ export async function createOrder(payload: CreateOrderPayload): Promise<Order> {
     }
   }
 
-  return {
+  const newOrder = {
     ...order,
     customer: { name: 'Processing...' } // Placeholder until refreshed
   } as Order;
+
+  // Fire notification asynchronously
+  notifyOrderCreated(orderNumber, payload.total).catch(console.error);
+
+  return newOrder;
 }
 
 export async function updateOrderStatus(id: string, status: OrderStatus): Promise<Order> {
@@ -151,10 +157,17 @@ export async function updateOrderStatus(id: string, status: OrderStatus): Promis
   if (error) throw error;
   
   const cust = data.customer as { first_name?: string; last_name?: string } | null;
-  return {
+  const updatedOrder = {
     ...data,
     customer: cust ? { name: `${cust.first_name || ''} ${cust.last_name || ''}`.trim() } : null
   } as Order;
+
+  // Fire delivered notification
+  if (status === 'delivered') {
+    notifyOrderDelivered(updatedOrder.order_number).catch(console.error);
+  }
+
+  return updatedOrder;
 }
 
 export async function deleteOrder(id: string): Promise<void> {

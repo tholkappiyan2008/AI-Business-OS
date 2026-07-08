@@ -1,4 +1,5 @@
 import { getBrowserSupabaseClient as getSupabaseClient, getBrowserActiveBusinessId as getActiveBusinessId } from '../clientHelper';
+import { notifyProductCreated, notifyLowStock } from '../notifications/notifications.service';
 
 export interface UnifiedProduct {
   id: string; // Product ID
@@ -124,7 +125,17 @@ export async function createProduct(payload: Omit<UnifiedProduct, 'id' | 'busine
 
   // To perfectly match mapFromDB, we ensure the joined product is passed
   inventoryData.product = productData;
-  return mapFromDB(inventoryData);
+  const result = mapFromDB(inventoryData);
+
+  // Fire notifications asynchronously
+  notifyProductCreated(result.product_name, result.sku).catch(console.error);
+
+  // Check if initial quantity is already below reorder level
+  if (result.quantity <= result.reorder_level && result.reorder_level > 0) {
+    notifyLowStock(result.product_name, result.quantity, result.reorder_level).catch(console.error);
+  }
+
+  return result;
 }
 
 export async function updateProduct(id: string, payload: Partial<Omit<UnifiedProduct, 'id' | 'business_id' | 'created_at'>>): Promise<UnifiedProduct> {
@@ -168,7 +179,14 @@ export async function updateProduct(id: string, payload: Partial<Omit<UnifiedPro
     .single();
 
   if (error) throw error;
-  return mapFromDB(data);
+  const updated = mapFromDB(data);
+
+  // Check for low stock after update
+  if (payload.quantity !== undefined && updated.quantity <= updated.reorder_level && updated.reorder_level > 0) {
+    notifyLowStock(updated.product_name, updated.quantity, updated.reorder_level).catch(console.error);
+  }
+
+  return updated;
 }
 
 export async function deleteProduct(id: string): Promise<void> {
